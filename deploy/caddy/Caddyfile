@@ -1,0 +1,86 @@
+# TLS e roteamento por hostname na frente da aplicação.
+#
+# HTTPS não é preferência aqui: o MSAL exige a Web Crypto API, que o navegador
+# só expõe em contexto seguro. Em HTTP puro o app nem inicializa
+# (BrowserAuthError: crypto_nonexistent).
+#
+# Dois endereços são atendidos ao mesmo tempo, de propósito:
+#
+#   SITE_ADDRESS  (ex.: financeiro.exemplo.com.br)
+#     HTTPS com certificado Let's Encrypt automático. É o endereço final.
+#
+#   LEGACY_HTTP_ADDRESS  (ex.: http://203.0.113.10)
+#     HTTP puro, sem TLS. Existe para a transição: enquanto a porta 443 não
+#     estiver liberada no firewall da nuvem, este é o único acesso possível.
+#     Pode sair assim que o domínio estiver funcionando.
+#
+# HTTPS num IP puro NÃO é alternativa ao domínio: o cliente não envia SNI (a RFC
+# não admite IP nesse campo), o Caddy não consegue escolher o certificado e o
+# handshake morre com "tlsv1 alert internal error". Testado.
+#
+# Hostname que não casar com nenhum dos dois recebe 404 do próprio Caddy — é o
+# comportamento desejado quando o DNS é um wildcard.
+
+# Configuração comum aos dois endereços, para não duplicar regra.
+(aplicacao) {
+	# Restrição de acesso por IP. ALLOWED_IPS é uma lista separada por espaço
+	# (IPs ou CIDRs). Vazio = liberado para todos.
+	#
+	# Camada opcional: a autenticação é pelo Entra ID; isto só limita a exposição.
+	@bloqueado {
+		not remote_ip {$ALLOWED_IPS}
+		# O desafio do Let's Encrypt vem dos servidores da CA, de IPs que não
+		# controlamos; bloqueá-lo impediria a emissão e a renovação do certificado.
+		not path /.well-known/acme-challenge/*
+	}
+	respond @bloqueado "Acesso restrito a esta aplicacao." 403
+
+	encode zstd gzip
+
+	# Todo o tráfego vai para o nginx da imagem do frontend, que já serve o SPA
+	# e faz o proxy de /api para o backend. Assim a rota da API não é duplicada.
+	reverse_proxy frontend:80 {
+		# Import de lote de documentos pode passar de 60s.
+		transport http {
+			read_timeout 300s
+		}
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stderr
+		format console
+	}
+}
+
+# ── Endereço final: HTTPS com certificado válido ────────────────────────────
+{$SITE_ADDRESS} {
+	import aplicacao
+
+	# HSTS só aqui: no endereço HTTP puro ele apenas forçaria o navegador a
+	# insistir em HTTPS num endereço que não tem TLS, travando o acesso.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+# ── Transição: acesso por IP em HTTP puro, sem redirecionar para HTTPS ───────
+{$LEGACY_HTTP_ADDRESS} {
+	import aplicacao
+}
+
+# ── Qualquer outro hostname: 404 ────────────────────────────────────────────
+# Com DNS wildcard (*.seu-dominio) apontando para esta máquina, então
+# nomes de outras aplicações chegam aqui. Sem este bloco eles recebiam o redirect
+# genérico para HTTPS e morriam num erro de TLS; agora a resposta é explícita.
+#
+# Vem por último de propósito: o Caddy casa o host mais específico primeiro,
+# então os blocos acima têm precedência. O desafio ACME chega com o Host do
+# domínio gerenciado e é atendido pelo bloco dele, não por este.
+:80, :443 {
+	respond "404 - aplicacao nao encontrada neste endereco" 404
+}

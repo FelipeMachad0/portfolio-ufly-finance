@@ -1,0 +1,29 @@
+# O contexto de build é a RAIZ do repositório (os dois Dockerfiles precisam de
+# packages/shared, que é dependência de workspace do backend e do frontend).
+# Por isso este .dockerignore fica aqui e não dentro de backend/ ou frontend/.
+
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+**/coverage
+
+# Segredos e ambiente local — jamais dentro da imagem
+**/.env
+**/.env.*
+!**/.env.example
+
+# Uploads locais de desenvolvimento
+backend/uploads
+
+.git
+.gitignore
+.github
+.claude
+**/*.log
+**/.DS_Store
+**/.vscode
+
+# Documentação não entra na imagem
+*.md
+docs

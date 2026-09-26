@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Ufly">
+  <defs>
+    <linearGradient id="g" x1="320" y1="40" x2="40" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0"   stop-color="#50A6D2"/>
+      <stop offset="0.5" stop-color="#2D80C8"/>
+      <stop offset="1"   stop-color="#2266A4"/>
+    </linearGradient>
+  </defs>
+  <polygon fill="url(#g)" points="274.97 160.63 211.87 222.76 254.77 209.29 219.24 360.89 155.36 205.88 0 142.94 151.93 106.45 138.22 149.53 198.6 88.77 359.92 0 274.97 160.63"/>
+</svg>

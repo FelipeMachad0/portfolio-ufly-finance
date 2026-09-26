@@ -1,0 +1,55 @@
+# Publica a demonstração estática no GitHub Pages a cada push na main.
+#
+# A versão estática roda sem backend nem banco: as chamadas da API são
+# respondidas no navegador a partir de frontend/src/demo/dados.json.
+#
+# Pré-requisito (uma vez): Settings → Pages → Source = "GitHub Actions".
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build estático
+        working-directory: frontend
+        env:
+          # O site fica em https://<usuário>.github.io/<repositório>/
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: |
+          npm run build:pages
+          # Rotas do SPA (/dashboard, /dre...) não existem como arquivo: o
+          # Pages serve o 404.html, que é o próprio app.
+          cp dist-pages/index.html dist-pages/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist-pages
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

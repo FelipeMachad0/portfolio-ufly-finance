@@ -1,0 +1,268 @@
+// Prisma schema — fiel ao banco PostgreSQL real (introspecção),
+// padronizado para PascalCase (models) + camelCase (campos) com @map/@@map.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  name         String    @db.VarChar(255)
+  entraId      String?   @unique @map("entra_id") @db.VarChar(255)
+  avatarUrl    String?   @map("avatar_url") @db.VarChar(500)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  role         String    @default("USUARIO") @db.VarChar(30)
+  status       String    @default("ATIVO") @db.VarChar(20)
+  lastLogin    DateTime? @map("last_login") @db.Timestamp(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamp(6)
+  passwordHash String?   @map("password_hash") @db.VarChar(255)
+
+  accounts                  Account[]
+  budgets                   Budget[]
+  categories                Category[]
+  costCenterBudgets         CostCenterBudget[]   @relation("CostCenterBudgetUser")
+  costCenterBudgetsAsGestor CostCenterBudget[]   @relation("CostCenterBudgetGestor")
+  auditEvents               AuditEvent[]
+  transactions              Transaction[]
+  documentosImportados      DocumentoImportado[]
+  clientes                  Cliente[]
+  projetos                  Projeto[]
+  typeFieldSchemas          TypeFieldSchema[]
+
+  @@index([deletedAt], map: "idx_users_deleted_at")
+  @@index([email], map: "idx_users_email")
+  @@index([entraId], map: "idx_users_entra_id")
+  @@index([role], map: "idx_users_role")
+  @@index([status], map: "idx_users_status")
+  @@map("users")
+}
+
+model Account {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String        @map("user_id") @db.Uuid
+  name         String        @db.VarChar(255)
+  type         String        @db.VarChar(50) // bank | credit_card | wallet (CHECK no banco)
+  balance      Decimal       @default(0) @db.Decimal(15, 2)
+  currency     String        @default("BRL") @db.Char(3)
+  isActive     Boolean       @default(true) @map("is_active")
+  createdAt    DateTime?     @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime?     @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime?     @map("deleted_at") @db.Timestamp(6)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  transactions Transaction[]
+
+  @@index([userId], map: "idx_accounts_user_id")
+  @@map("accounts")
+}
+
+model Transaction {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String    @map("account_id") @db.Uuid
+  /// Quem cadastrou. Metadado, nao posse: o lancamento sobrevive a remocao
+  /// da pessoa (ON DELETE SET NULL). Os dados sao da plataforma.
+  userId      String?   @map("user_id") @db.Uuid
+  amount      Decimal   @db.Decimal(15, 2)
+  type        String    @db.VarChar(20) // income | expense | transfer (CHECK no banco)
+  description String    @db.VarChar(500)
+  date        DateTime  @db.Date
+  categoryId  String?   @map("category_id") @db.Uuid
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamp(6)
+  status      String    @default("completed") @db.VarChar(20) // pending | completed | cancelled
+  metadata    Json      @default("{}")
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([accountId], map: "idx_transactions_account_id")
+  @@index([date], map: "idx_transactions_date")
+  @@index([metadata], map: "idx_transactions_metadata_gin", type: Gin)
+  @@index([userId], map: "idx_transactions_user_id")
+  @@map("transactions")
+}
+
+/// Documento enviado para leitura automática, aguardando confirmação.
+///
+/// O usuário envia um lote de documentos e continua trabalhando; a leitura corre
+/// em segundo plano e ele volta para confirmar o que ficou pronto.
+///
+/// Persistir é o que faz a leitura sobreviver a um restart do backend: ao subir,
+/// o processo em segundo plano devolve à fila o que ficou pela metade.
+model DocumentoImportado {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Quem enviou. Aqui é POSSE, diferente de Transaction: a leitura pendente só
+  /// aparece para quem a enviou, porque é rascunho — ninguém deve confirmar um
+  /// lançamento a partir de um documento que não viu chegar. Depois de
+  /// confirmado, o lançamento é da plataforma como qualquer outro.
+  userId            String    @map("user_id") @db.Uuid
+  /// Id do anexo no storage (o arquivo é guardado antes da leitura começar).
+  arquivoId         String    @map("arquivo_id") @db.VarChar(100)
+  nomeOriginal      String    @map("nome_original") @db.VarChar(255)
+  mimetype          String    @db.VarChar(100)
+  tamanho           Int
+  /// na_fila | lendo | pronta | falhou | confirmada | descartada
+  status            String    @default("na_fila") @db.VarChar(20)
+  /// A leitura no formato NotaExtraction, para o formulário pré-preencher.
+  resultado         Json?
+  /// Motivo da falha, mostrado ao usuário.
+  erro              String?   @db.VarChar(500)
+  /// Lançamento criado na confirmação. Null enquanto não confirmado.
+  transactionId     String?   @map("transaction_id") @db.Uuid
+  criadoEm          DateTime  @default(now()) @map("criado_em") @db.Timestamp(6)
+  atualizadoEm      DateTime  @default(now()) @updatedAt @map("atualizado_em") @db.Timestamp(6)
+  /// Quando a leitura começou — base para reenfileirar leitura interrompida.
+  iniciadoEm        DateTime? @map("iniciado_em") @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId, status], map: "idx_documentos_importados_user_status")
+  @@index([status], map: "idx_documentos_importados_status")
+  @@map("documentos_importados")
+}
+
+model AuditEvent {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId     String?   @map("usuario_id") @db.Uuid
+  tipoEvento    String    @map("tipo_evento") @db.VarChar(100)
+  entidade      String    @db.VarChar(100)
+  entidadeId    String?   @map("entidade_id") @db.Uuid
+  payloadAntes  Json?     @map("payload_antes")
+  payloadDepois Json?     @map("payload_depois")
+  criadoEm      DateTime? @default(now()) @map("criado_em") @db.Timestamp(6)
+  usuario       User?     @relation(fields: [usuarioId], references: [id], onUpdate: NoAction)
+
+  @@index([criadoEm], map: "idx_auditoria_criado_em")
+  @@index([tipoEvento], map: "idx_auditoria_tipo_evento")
+  @@index([usuarioId], map: "idx_auditoria_usuario_id")
+  @@map("evento_auditoria")
+}
+
+model Budget {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  categoryId  String    @map("category_id") @db.Uuid
+  limitAmount Decimal   @map("limit_amount") @db.Decimal(15, 2)
+  period      String    @db.VarChar(20) // monthly | yearly (CHECK no banco)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamp(6)
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([userId, categoryId, period])
+  @@index([categoryId], map: "idx_budgets_category_id")
+  @@index([userId], map: "idx_budgets_user_id")
+  @@map("budgets")
+}
+
+model Category {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  name         String    @db.VarChar(50)
+  type         String    @db.VarChar(20) // income | expense (CHECK no banco)
+  color        String    @default("#08133E") @db.VarChar(7)
+  icon         String?   @db.VarChar(50)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamp(6)
+  fieldsSchema Json      @default("[]") @map("fields_schema")
+  budgets      Budget[]
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([userId, name, type])
+  @@index([type], map: "idx_categories_type")
+  @@index([userId], map: "idx_categories_user_id")
+  @@map("categories")
+}
+
+model CostCenterBudget {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  costCenter    String    @map("cost_center") @db.VarChar(50)
+  label         String?   @db.VarChar(200)
+  monthlyAmount Decimal   @map("monthly_amount") @db.Decimal(15, 2)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamp(6)
+  gestorUserId  String?   @map("gestor_user_id") @db.Uuid
+  gestor        User?     @relation("CostCenterBudgetGestor", fields: [gestorUserId], references: [id], onUpdate: NoAction)
+  user          User      @relation("CostCenterBudgetUser", fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([userId, costCenter])
+  @@index([costCenter], map: "idx_ccb_cost_center")
+  @@index([gestorUserId], map: "idx_ccb_gestor")
+  @@index([userId], map: "idx_ccb_user_id")
+  @@map("cost_center_budgets")
+}
+
+model Cliente {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  nome      String    @db.VarChar(255)
+  empresas  Json      @default("[]") // lista de empresas { nome, cnpj }
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  projetos  Projeto[]
+
+  @@index([userId], map: "idx_clientes_user_id")
+  @@map("clientes")
+}
+
+model Projeto {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  clienteId    String    @map("cliente_id") @db.Uuid
+  nome         String    @db.VarChar(255)
+  descricao    String?
+  contrato     Json? // referência do arquivo do contrato { id, originalName, mimetype, size }
+  inicioMaster DateTime? @map("inicio_master") @db.Date
+  fimMaster    DateTime? @map("fim_master") @db.Date
+  itens        Json      @default("[]") // itens do contrato (lista)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamp(6)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  cliente      Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId], map: "idx_projetos_user_id")
+  @@index([clienteId], map: "idx_projetos_cliente_id")
+  @@map("projetos")
+}
+
+model TypeFieldSchema {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tipo         String    @db.VarChar(20) // income | expense
+  fieldsSchema Json      @default("[]") @map("fields_schema")
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([userId, tipo])
+  @@map("type_field_schemas")
+}
+
+/// Mapeamento grupo de segurança do Entra ID -> papel da aplicação.
+/// O grupo é a lista de acesso: a TI adiciona a pessoa no grupo e ela entra com
+/// o papel correspondente, sem cadastro manual aqui.
+model EntraGroupMapping {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupObjectId String    @unique @map("group_object_id") @db.VarChar(36)
+  groupName     String    @map("group_name") @db.VarChar(200)
+  role          String    @db.VarChar(30)
+  /// Menor valor ganha quando a pessoa está em mais de um grupo.
+  precedence    Int       @default(100)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@map("entra_group_mapping")
+}

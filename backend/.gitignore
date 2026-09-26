@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.development
+.env.production
+.env.local
+*.log
+coverage/
+
+# Banco embutido do modo demonstração (npm run demo)
+.demo-db/

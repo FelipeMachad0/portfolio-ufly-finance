@@ -1,0 +1,115 @@
+# Stack completa: Postgres + backend + frontend (nginx).
+#
+# Uso:
+#   cp .env.production.example .env && edite os segredos
+#   docker compose up -d --build
+#
+# O contexto de build é a raiz (.) nos dois serviços porque backend e frontend
+# dependem do workspace @ufly/shared.
+
+services:
+  postgres:
+    # Versão 18 para casar com o banco de origem: um dump de 18 não restaura em
+    # servidor mais antigo.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ufly_financeiro}
+      POSTGRES_USER: ${POSTGRES_USER:-ufly_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      # A partir do Postgres 18 a imagem oficial espera o mount em
+      # /var/lib/postgresql (e cria o subdiretório da major dentro). Montar em
+      # .../data — como era até a 17 — faz o container tratar o volume como
+      # "unused mount" e nunca ficar healthy.
+      - pgdata:/var/lib/postgresql
+    # Sem ports: o banco não fica exposto na internet. Para acessar de fora, use
+    # um túnel SSH até a máquina do compose.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-ufly_user} -d ${POSTGRES_DB:-ufly_financeiro}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # Espera o banco aceitar conexões: o entrypoint roda migrations no start
+        # e falharia se subisse antes.
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ufly_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ufly_financeiro}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      JWT_EXPIRY: ${JWT_EXPIRY:-24h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      MSAL_CLIENT_ID: ${MSAL_CLIENT_ID:-}
+      MSAL_TENANT_ID: ${MSAL_TENANT_ID:-}
+      MSAL_CLIENT_SECRET: ${MSAL_CLIENT_SECRET:-}
+      APP_URL: ${APP_URL:-}
+      # Criar usuário no primeiro login do Entra. Default desligado: os dados são
+      # compartilhados, então provisionar sozinho daria a qualquer pessoa do
+      # tenant acesso ao financeiro inteiro. Com os grupos mapeados, quem está em
+      # um deles é provisionado de qualquer forma — este flag é só o escape para
+      # ambiente sem grupos configurados.
+      ENTRA_AUTO_PROVISION: ${ENTRA_AUTO_PROVISION:-false}
+    volumes:
+      # Anexos precisam sobreviver a recriação do container.
+      - uploads:/app/backend/uploads
+    # Sem ports: o acesso é sempre via nginx (/api), na mesma origem.
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # /api relativo: o nginx faz o proxy para o backend na rede interna.
+      VITE_API_URL: /api
+      VITE_APP_NAME: ${VITE_APP_NAME:-Ufly Controle Financeiro}
+      VITE_MSAL_CLIENT_ID: ${VITE_MSAL_CLIENT_ID:-}
+      VITE_MSAL_AUTHORITY: ${VITE_MSAL_AUTHORITY:-}
+      VITE_MSAL_REDIRECT_URI: ${VITE_MSAL_REDIRECT_URI:-}
+    # Sem ports: quem fala com a internet é o Caddy (TLS). O nginx continua
+    # servindo o SPA e o proxy de /api dentro da rede interna.
+
+  caddy:
+    # Termina TLS na borda. Necessário porque o MSAL exige contexto seguro — em
+    # HTTP puro o frontend nem inicializa (crypto_nonexistent).
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    environment:
+      # Domínio → Let's Encrypt automático. IP → CA interna (navegador avisa).
+      SITE_ADDRESS: ${SITE_ADDRESS:?defina SITE_ADDRESS no .env}
+      # Endereço HTTP puro atendido em paralelo durante a transição para o
+      # domínio (ex.: http://203.0.113.10). O default http://localhost desativa
+      # o acesso externo sem deixar o bloco do Caddyfile sem endereço — o que
+      # tornaria a configuração inválida ("server block without any key").
+      LEGACY_HTTP_ADDRESS: ${LEGACY_HTTP_ADDRESS:-http://localhost}
+      # Lista separada por espaço de IPs/CIDRs com acesso. Vazio = todos.
+      ALLOWED_IPS: ${ALLOWED_IPS:-}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy_data guarda os certificados: sem persistir, cada recriação pediria
+      # certificado novo e bateria no rate limit do Let's Encrypt.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - '80:80'
+      - '443:443'
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

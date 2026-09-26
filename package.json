@@ -1,0 +1,13 @@
+{
+  "name": "ufly-financeiro",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "demo": "npm run build --workspace=@ufly/shared && npm run demo --workspace=backend"
+  }
+}

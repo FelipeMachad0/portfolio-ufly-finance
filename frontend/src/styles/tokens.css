@@ -1,0 +1,86 @@
+:root {
+  /* === Ufly Brand === */
+  --ufly-navy:        #08133E;
+  --ufly-cyan:        #50A6D2;
+  --ufly-deep:        #2266A4;
+  --ufly-mid:         #2D80C8;
+  --ufly-light:       #45A5DE;
+  --ufly-ice:         #C9DEF4;
+  --ufly-ice-soft:    #D3E3F6;
+  --ufly-white:       #FFFFFF;
+  --ufly-gradient:    linear-gradient(135deg, #08133E 0%, #2266A4 50%, #50A6D2 100%);
+
+  /* === Neutros funcionais === */
+  --neutral-900:      #0F172A;
+  --neutral-700:      #334155;
+  --neutral-500:      #64748B;
+  --neutral-300:      #CBD5E1;
+  --neutral-200:      #E2E8F0;
+  --neutral-100:      #F1F5F9;
+  --neutral-50:       #F8FAFC;
+
+  /* === Semânticas === */
+  --success:          #10B981;
+  --success-soft:     #D1FAE5;
+  --success-dark:     #065F46;
+  --warning:          #F59E0B;
+  --warning-soft:     #FEF3C7;
+  --warning-dark:     #92400E;
+  --danger:           #EF4444;
+  --danger-soft:      #FEE2E2;
+  --danger-dark:      #991B1B;
+
+  /* === Tipografia === */
+  --font-sans:    'Zalando Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Zalando Sans', -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.875rem;
+  --text-4xl:  2.25rem;
+
+  /* === Raios === */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+
+  /* === Sombras === */
+  --shadow-sm:  0 1px 2px rgba(8, 19, 62, 0.06);
+  --shadow-md:  0 4px 12px rgba(8, 19, 62, 0.08);
+  --shadow-lg:  0 12px 32px rgba(8, 19, 62, 0.12);
+
+  /* === Tokens financeiros (income / expense / transfer) === */
+  --finance-income:        var(--success);
+  --finance-income-soft:   var(--success-soft);
+  --finance-expense:       var(--danger);
+  --finance-expense-soft:  var(--danger-soft);
+  --finance-transfer:      var(--ufly-deep);
+  --finance-transfer-soft: var(--ufly-ice);
+
+  /* === Status badges (transações / contas) === */
+  --badge-completed-bg:    var(--success-soft);
+  --badge-completed-fg:    var(--success-dark);
+  --badge-pending-bg:      var(--warning-soft);
+  --badge-pending-fg:      var(--warning-dark);
+  --badge-cancelled-bg:    var(--neutral-100);
+  --badge-cancelled-fg:    var(--neutral-500);
+  --badge-active-bg:       var(--success-soft);
+  --badge-active-fg:       var(--success-dark);
+  --badge-inactive-bg:     var(--neutral-200);
+  --badge-inactive-fg:     var(--neutral-700);
+
+  /* === Role badges (usuários) === */
+  --badge-role-usuario-bg:        var(--neutral-100);
+  --badge-role-usuario-fg:        var(--neutral-700);
+  --badge-role-gestor-dep-bg:     var(--ufly-ice);
+  --badge-role-gestor-dep-fg:     var(--ufly-deep);
+  --badge-role-gestor-geral-bg:   var(--ufly-ice-soft);
+  --badge-role-gestor-geral-fg:   var(--ufly-navy);
+  --badge-role-auditor-bg:        var(--warning-soft);
+  --badge-role-auditor-fg:        var(--warning-dark);
+}
