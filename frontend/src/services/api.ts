@@ -14,7 +14,10 @@ const api = axios.create({
 // partir de src/demo/dados.json. A flag é de BUILD — fora dela o código da
 // demo nem entra no bundle.
 if (import.meta.env.VITE_STATIC_DEMO === 'true') {
-  api.defaults.adapter = async (cfg) => (await import('../demo/api-estatica')).adapterEstatico(cfg);
+  // Começa a baixar já na carga da página, não no primeiro clique: assim a
+  // primeira chamada (o botão de entrar) não espera o download do módulo.
+  const modulo = import('../demo/api-estatica');
+  api.defaults.adapter = async (cfg) => (await modulo).adapterEstatico(cfg);
 }
 
 api.interceptors.request.use((config) => {
